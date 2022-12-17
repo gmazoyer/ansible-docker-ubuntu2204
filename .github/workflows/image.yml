@@ -1,16 +1,35 @@
 ---
 name: image
 on:
+  pull_request:
   push:
     branches:
       - main
+  schedule:
+    - cron: "10 1 * * 0"
 
 jobs:
-  docker:
+  # Test the image builds and works correctly
+  test:
+    name: Test
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
+      - name: Test building image
+        run: docker build -t docker-ansible .
+      - name: Run the built image
+        run: docker run --name test-container -d --privileged --cgroupns=host -v /sys/fs/cgroup:/sys/fs/cgroup:rw docker-ansible
+      - name: Verify Ansible is accessible in the built image
+        run: docker exec --tty test-container env TERM=xterm ansible --version
+
+  # If on main branch, build and release image
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v3
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v2 
         with:
@@ -20,7 +39,7 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v3
         with:
-          context: .
+          context: ./
+          file: Dockerfile
           push: true
-          tags: |
-            ghcr.io/gmazoyer/ansible-docker-ubuntu2204:latest
+          tags: ghcr.io/gmazoyer/${{ github.repository }}:latest

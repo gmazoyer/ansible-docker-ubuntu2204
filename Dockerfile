@@ -1,35 +1,39 @@
 FROM ubuntu:jammy
 
-LABEL version="1.0"
+LABEL version="2.0"
 LABEL maintainer="Guillaume Mazoyer"
 LABEL description="Ubuntu 22.04 container for Ansible role testing"
 
-ENV DEBIAN_FRONTEND noninteractive
+ARG DEBIAN_FRONTEND=noninteractive
 
-# Install requirements
+ENV pip_packages "ansible"
+
+# Install dependencies
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-               build-essential libffi-dev libssl-dev locales locales-all \
-               python3-pip python3-dev python3-setuptools python3-wheel \
-               sudo systemd \
-    && rm -rf /var/lib/apt/lists/* \
-    && rm -rf /usr/share/doc && rm -rf /usr/share/man \
+    apt-utils build-essential locales libffi-dev libssl-dev libyaml-dev \
+    python3-dev python3-setuptools python3-pip python3-yaml \
+    software-properties-common rsyslog systemd systemd-cron sudo iproute2 \
     && apt-get clean \
+    && rm -Rf /var/lib/apt/lists/* \
+    && rm -Rf /usr/share/doc && rm -Rf /usr/share/man \
     && echo 'Europe/Paris' > /etc/timezone
+RUN sed -i 's/^\($ModLoad imklog\)/#\1/' /etc/rsyslog.conf
 
-ENV LC_ALL en_US.UTF-8
-ENV LANG en_US.UTF-8
-ENV LANGUAGE en_US.UTF-8
+# Fix potential UTF-8 errors with ansible-test
+RUN locale-gen en_US.UTF-8
 
-# Install Ansible
-RUN pip3 install cryptography ansible
+# Install Ansible via pip
+RUN pip3 install $pip_packages
 
-# Ansible inventory file
-RUN mkdir -p /etc/ansible/roles \
-    && echo "[local]\nlocalhost ansible_connection=local" > /etc/ansible/hosts
+# Install Ansible inventory file
+RUN mkdir -p /etc/ansible
+RUN echo "[local]\nlocalhost ansible_connection=local" > /etc/ansible/hosts
 
-# Make sure systemd does not mess with us
-RUN rm -f /lib/systemd/system/multi-user.target.wants/getty.target
+# Remove unnecessary getty and udev targets that result in high CPU usage when using
+# multiple containers with Molecule (https://github.com/ansible/molecule/issues/1104)
+RUN rm -f /lib/systemd/system/systemd*udev* \
+    && rm -f /lib/systemd/system/getty.target
 
-VOLUME ["/sys/fs/cgroup"]
+VOLUME ["/sys/fs/cgroup", "/tmp", "/run"]
 CMD ["/lib/systemd/systemd"]
